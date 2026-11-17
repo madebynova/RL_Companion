@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A Rocket League companion dashboard for local match statistics and profile tracking."
+    />
+    <title>RL Companion — Match Dashboard</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="lifecycle-diagnostics.js" defer></script>
+    <script src="stats-api.js" defer></script>
+    <script src="match-tracker.js" defer></script>
+    <script src="rank-thresholds.js" defer></script>
+    <script src="rank-progress.js" defer></script>
+    <script src="mmr-bridge.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="dashboard">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="RL Companion home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path d="M16 3 29 26H3L16 3Z" stroke="currentColor" stroke-width="2.4" />
+              <path d="m16 11 8 14H8l8-14Z" fill="currentColor" />
+            </svg>
+          </span>
+          <span class="brand-name">RL <span>COMPANION</span></span>
+        </a>
+        <div class="topbar-right">
+          <span class="demo-badge" id="global-data-badge"><span></span> NO LIVE DATA</span>
+          <div class="mode-toggle" role="group" aria-label="Match mode">
+            <button
+              class="mode-toggle-button is-selected"
+              id="ranked-mode-button"
+              type="button"
+              aria-pressed="true"
+            >Ranked</button>
+            <button
+              class="mode-toggle-button"
+              id="casual-mode-button"
+              type="button"
+              aria-pressed="false"
+            >Casual</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="welcome-row" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">YOUR MATCHDAY OVERVIEW</p>
+          <h1 id="page-title">Ranked Overview</h1>
+          <p class="welcome-copy">Live match details from your game, with your profiles and progress kept on this device.</p>
+        </div>
+        <div class="session-date">
+          <span class="date-icon" aria-hidden="true">◷</span>
+          <span><strong>SESSION</strong><span id="session-date">Sample session</span></span>
+        </div>
+      </section>
+
+      <section class="card connection-card" aria-labelledby="connection-heading">
+        <div class="connection-header">
+          <div>
+            <p class="eyebrow">LOCAL GAME DATA</p>
+            <h2 id="connection-heading">Rocket League Stats API</h2>
+          </div>
+          <span class="connection-pill" id="rl-connection-status" data-status="waiting">
+            WAITING FOR GAME
+          </span>
+        </div>
+        <div class="connection-body">
+          <div>
+            <p class="connection-detail" id="rl-connection-detail" role="status" aria-live="polite">
+              Waiting for Rocket League. RL Companion checks the local Stats API automatically.
+            </p>
+            <p class="connection-match-state" id="live-match-state">Waiting for a match.</p>
+            <p class="connection-roster" id="live-match-roster">Players in match: —</p>
+          </div>
+          <div class="connection-actions">
+            <button class="button button-primary" id="connect-stats-api" type="button">
+              Connect
+            </button>
+            <button class="button button-secondary" id="disconnect-stats-api" type="button" disabled>
+              Disconnect
+            </button>
+          </div>
+        </div>
+        <div class="lifecycle-diagnostics" aria-labelledby="lifecycle-diagnostics-heading">
+          <div class="lifecycle-diagnostics-copy">
+            <h3 id="lifecycle-diagnostics-heading">Local lifecycle diagnostics</h3>
+            <p id="lifecycle-diagnostics-status" role="status" aria-live="polite">
+              Disabled. No lifecycle events are being recorded.
+            </p>
+            <label class="diagnostics-toggle" for="lifecycle-diagnostics-enabled">
+              <input id="lifecycle-diagnostics-enabled" type="checkbox" />
+              Record match and WebSocket lifecycle events on this device
+            </label>
+            <p class="diagnostics-privacy-note">
+              Stores event names and privacy-safe status summaries in this browser only. Player names, identifiers, and log contents are not recorded.
+            </p>
+          </div>
+          <div class="lifecycle-diagnostics-actions">
+            <button class="button button-secondary" id="download-lifecycle-diagnostics" type="button" disabled>
+              Download JSON
+            </button>
+            <button class="button button-secondary" id="clear-lifecycle-diagnostics" type="button" disabled>
+              Clear log
+            </button>
+          </div>
+        </div>
+        <p class="connection-help">
+          If Rocket League is running but unavailable, its Stats API may be disabled. You can enable it yourself by setting
+          <code>PacketSendRate</code> above <code>0</code> in
+          <code>&lt;Rocket League install&gt;\TAGame\Config\DefaultStatsAPI.ini</code>, then restarting the game.
+          RL Companion will not edit game files.
+          <a href="https://www.rocketleague.com/developer/stats-api" target="_blank" rel="noopener noreferrer">
+            Official Stats API documentation
+          </a>
+        </p>
+      </section>
+
+      <section class="card profile-card" aria-labelledby="profile-heading">
+        <div class="profile-header">
+          <div>
+            <p class="eyebrow">PLAYER PROFILE</p>
+            <h2 id="profile-heading">Manage profiles</h2>
+          </div>
+          <span class="profile-status" id="profile-status">NOT CONNECTED</span>
+        </div>
+        <p class="profile-storage-note">
+          Profiles and manual MMR are stored for this browser address:
+          <code id="profile-storage-origin"></code>.
+          Use the same scheme, host, and port after application updates.
+        </p>
+
+        <div class="profile-manager">
+          <div class="profile-list-header">
+            <p class="eyebrow">SAVED LOCALLY ON THIS DEVICE</p>
+            <div class="profile-backup-actions">
+              <button class="button button-secondary" id="export-backup" type="button">
+                Export Backup
+              </button>
+              <button class="button button-secondary" id="import-backup" type="button">
+                Import Backup
+              </button>
+              <button class="button button-secondary" id="add-profile" type="button">
+                + Add profile
+              </button>
+              <input id="backup-file" type="file" accept=".json,application/json" hidden />
+            </div>
+          </div>
+          <ul class="profile-list" id="profile-list" aria-label="Saved player profiles"></ul>
+          <p class="profile-empty" id="profile-empty" hidden>
+            No profiles saved yet. Add a profile to get started.
+          </p>
+          <div class="profile-message" id="profile-manager-message" role="status" aria-live="polite" hidden></div>
+          <div class="delete-confirmation" id="delete-confirmation" role="group" aria-live="polite" hidden>
+            <span id="delete-confirmation-text"></span>
+            <div>
+              <button class="button button-secondary" id="cancel-delete" type="button">Keep profile</button>
+              <button class="button button-danger" id="confirm-delete" type="button">Remove profile</button>
+            </div>
+          </div>
+        </div>
+
+        <section id="backup-import-preview" class="backup-import-preview" aria-labelledby="backup-preview-heading" hidden>
+          <h3 id="backup-preview-heading">Review backup import</h3>
+          <p id="backup-preview-summary"></p>
+          <p class="backup-import-safety">
+            This is a merge, not a replacement. Existing profiles, MMR history, and match history are kept.
+            Matching Tracker URLs use the existing profile; conflicting IDs are remapped safely.
+          </p>
+          <div class="profile-actions">
+            <button class="button button-secondary" id="cancel-backup-import" type="button">Cancel</button>
+            <button class="button button-primary" id="confirm-backup-import" type="button">Merge backup</button>
+          </div>
+        </section>
+
+        <form id="profile-form" class="profile-form" novalidate>
+          <div class="form-section-heading">
+            <h3 id="profile-form-heading">Add a profile</h3>
+            <span>Each profile is stored separately.</span>
+          </div>
+          <div class="profile-fields">
+            <label class="form-field">
+              <span>PLATFORM</span>
+              <select id="profile-platform" name="platform">
+                <option value="epic">Epic Games</option>
+                <option value="steam">Steam</option>
+                <option value="playstation">PlayStation</option>
+                <option value="xbox">Xbox</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>ROCKET LEAGUE USERNAME</span>
+              <input
+                id="profile-username"
+                name="username"
+                type="text"
+                maxlength="100"
+                autocomplete="off"
+                placeholder="Enter your in-game username"
+                value="Paceɥ"
+              />
+            </label>
+            <label class="form-field nickname-field">
+              <span>NICKNAME <small>OPTIONAL</small></span>
+              <input
+                id="profile-nickname"
+                name="nickname"
+                type="text"
+                maxlength="60"
+                autocomplete="off"
+                placeholder="e.g. Main, Alt, teammate"
+              />
+            </label>
+          </div>
+
+          <div class="lookup-row">
+            <button class="button button-secondary" id="username-lookup" type="button">
+              Search by username
+            </button>
+            <span>Automated search isn't available in this stage.</span>
+          </div>
+
+          <label class="form-field url-field">
+            <span>ROCKET LEAGUE TRACKER PROFILE URL</span>
+            <input
+              id="profile-url"
+              name="profileUrl"
+              type="url"
+              inputmode="url"
+              autocomplete="url"
+              placeholder="https://rocketleague.tracker.network/rocket-league/profile/..."
+            />
+            <small>Paste the profile URL from Tracker Network. This app won't sign in or query Tracker.</small>
+          </label>
+
+          <div class="lookup-guidance">
+            <strong>Having trouble finding a profile?</strong>
+            <span>If a profile is unavailable, the page fails to load, or Tracker shows multiple matches, resolve that on Tracker and paste the exact profile URL here. This app cannot verify search results.</span>
+          </div>
+
+          <div class="profile-message" id="profile-message" role="status" aria-live="polite" hidden></div>
+
+          <div class="profile-actions">
+            <button class="button button-secondary" id="cancel-profile-edit" type="button">
+              Cancel
+            </button>
+            <button class="button button-primary" type="submit">Review profile</button>
+          </div>
+        </form>
+
+        <section id="profile-confirmation" class="profile-confirmation" aria-labelledby="confirmation-heading" hidden>
+          <p class="eyebrow">LOCAL PROFILE PREVIEW</p>
+          <h3 id="confirmation-heading">Review before saving</h3>
+          <p class="confirmation-note">
+            This app has not looked up or verified this account. Open the link to check it on Tracker.
+          </p>
+          <dl class="confirmation-details">
+            <div>
+              <dt>PLATFORM</dt>
+              <dd id="confirmation-platform"></dd>
+            </div>
+            <div>
+              <dt>USERNAME</dt>
+              <dd id="confirmation-username"></dd>
+            </div>
+            <div>
+              <dt>NICKNAME</dt>
+              <dd id="confirmation-nickname"></dd>
+            </div>
+            <div>
+              <dt>TRACKER URL</dt>
+              <dd>
+                <a id="confirmation-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+              </dd>
+            </div>
+          </dl>
+          <label class="confirm-check">
+            <input id="profile-reviewed" type="checkbox" />
+            <span>I reviewed this profile link and want to save these details.</span>
+          </label>
+          <div class="profile-message" id="confirmation-message" role="status" aria-live="polite" hidden></div>
+          <div class="profile-actions">
+            <button class="button button-secondary" id="back-to-profile" type="button">Back to edit</button>
+            <button class="button button-primary" id="save-profile" type="button" disabled>
+              Save profile locally
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <section class="overview-grid" id="overview-grid" aria-label="Ranked MMR and session overview">
+        <article class="card rank-card" id="rank-card" aria-labelledby="rank-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">RANKED 2V2 · LOCAL GAME LOG + MANUAL FALLBACK</p>
+              <h2 id="rank-heading">2v2 MMR</h2>
+            </div>
+            <span class="rank-season" id="mmr-source-label">WAITING FOR DATA</span>
+          </div>
+
+          <section class="rank-progress" aria-labelledby="rank-progress-heading">
+            <div class="rank-progress-header">
+              <div>
+                <p class="eyebrow">RANK PROGRESS</p>
+                <h3 id="rank-progress-heading">Rank Progress</h3>
+              </div>
+              <span class="rank-progress-division" id="rank-progress-division" hidden></span>
+            </div>
+            <div class="mmr-current-row">
+              <div class="mmr-current-value">
+                <span class="stat-label">CURRENT 2V2 MMR</span>
+                <strong id="current-mmr">—</strong>
+                <span id="current-mmr-updated">No manual update recorded</span>
+              </div>
+              <form id="mmr-form" class="mmr-form">
+                <label class="form-field" for="mmr-input">
+                  <span>NEW MMR</span>
+                  <input id="mmr-input" name="mmr" type="number" min="0" max="99999" step="1" inputmode="numeric" placeholder="e.g. 1100" required />
+                </label>
+                <button class="button button-primary" type="submit">Save MMR</button>
+              </form>
+            </div>
+            <div class="rank-progress-content" id="rank-progress-content" hidden>
+              <div class="rank-progress-meter-row">
+                <div
+                  class="rank-progress-track"
+                  id="rank-progress-bar"
+                  role="progressbar"
+                  aria-label="Progress within current division"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                >
+                  <span id="rank-progress-fill"></span>
+                </div>
+                <span class="rank-progress-percent" id="rank-progress-percent"></span>
+              </div>
+              <div class="rank-progress-targets">
+                <div class="rank-progress-target">
+                  <span class="stat-label">TO NEXT DIVISION</span>
+                  <strong id="rank-progress-division-remaining"></strong>
+                  <small id="rank-progress-next-division"></small>
+                </div>
+                <div class="rank-progress-target">
+                  <span class="stat-label">TO NEXT RANK</span>
+                  <strong id="rank-progress-rank-remaining"></strong>
+                  <small id="rank-progress-next-rank"></small>
+                </div>
+              </div>
+              <p class="rank-progress-disclaimer">
+                Rank thresholds are estimates based on third-party 2v2 tracking data.
+              </p>
+            </div>
+            <p class="rank-progress-empty" id="rank-progress-empty">
+              Select a profile with saved MMR or add a manual Ranked 2v2 value to see rank progress.
+            </p>
+          </section>
+          <div class="automatic-mmr-status" id="automatic-mmr-status" data-status="helper-unavailable" role="status" aria-live="polite">
+            Local helper unavailable. Start the Node.js MMR helper.
+          </div>
+          <p class="helper-command-note">
+            The one-click launcher serves the dashboard at
+            <code>http://127.0.0.1:4176</code> and starts the helper at
+            <code>http://127.0.0.1:49125</code> (loopback only).
+            For manual startup, first serve this project at the same dashboard address, then run:
+            <code>node .\mmr-helper.js --origin http://127.0.0.1:4176</code>.
+            If you use another local dashboard address or port, replace the helper origin to match.
+          </p>
+          <section class="account-link-confirmation" id="account-link-confirmation" aria-labelledby="account-link-heading" hidden>
+            <h3 id="account-link-heading">Confirm Rocket League account</h3>
+            <p id="account-link-description"></p>
+            <p class="account-link-safety">
+              Confirm only if this is your account. The full account ID is never shown or stored; a one-way fingerprint is saved with this profile.
+            </p>
+            <div class="profile-actions">
+              <button class="button button-secondary" id="cancel-account-link" type="button">Not now</button>
+              <button class="button button-primary" id="confirm-account-link" type="button">Link to active profile</button>
+            </div>
+          </section>
+          <div class="profile-message" id="mmr-message" role="status" aria-live="polite" hidden></div>
+
+          <div class="mmr-history">
+            <div class="division-labels">
+              <span>MMR HISTORY</span>
+              <span id="mmr-history-count">0 UPDATES</span>
+            </div>
+            <ul id="mmr-history-list" class="mmr-history-list">
+              <li class="empty-history">No MMR updates yet.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="card session-card" aria-labelledby="session-heading">
+          <div class="card-heading">
+            <div>
+              <p class="eyebrow">AT A GLANCE</p>
+              <h2 id="session-heading">Ranked statistics</h2>
+              <p class="dashboard-profile-context" id="dashboard-profile-context">
+                No active profile selected
+              </p>
+            </div>
+            <span class="live-pill" id="session-data-badge"><span></span><span id="session-data-badge-label">WAITING</span></span>
+          </div>
+
+          <div class="stats-row">
+            <div class="stat">
+              <span class="stat-label">WINS</span>
+              <strong class="stat-value win-text" id="session-wins">—</strong>
+            </div>
+            <div class="stat">
+              <span class="stat-label">LOSSES</span>
+              <strong class="stat-value loss-text" id="session-losses">—</strong>
+            </div>
+            <div class="stat">
+              <span class="stat-label">MATCHES</span>
+              <strong class="stat-value" id="recorded-match-count">—</strong>
+            </div>
+          </div>
+
+          <div class="stats-divider"></div>
+
+          <div class="streak-area">
+            <div class="streak-copy">
+              <span class="stat-label">WIN RATE · STREAK</span>
+              <strong id="session-summary">No completed matches recorded</strong>
+            </div>
+            <div class="streak-markers" id="streak-markers" aria-label="No match streak recorded">
+            </div>
+          </div>
+          <p class="sample-note" id="profile-sample-note">
+            Actual match statistics appear here after completed games are recorded.
+          </p>
+          <button class="text-button" id="toggle-demo-data" type="button">Show optional demo data</button>
+        </article>
+      </section>
+
+      <section class="card history-card" aria-labelledby="history-heading">
+        <div class="history-header">
+          <div>
+            <p class="eyebrow">SAVED FROM OFFICIAL LOCAL MATCH EVENTS</p>
+            <h2 id="history-heading">Match history</h2>
+          </div>
+          <span class="match-count" id="match-count">0 MATCHES</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">RESULT</th>
+                <th scope="col">PLAYLIST</th>
+                <th scope="col">SCORE</th>
+                <th scope="col">GOALS</th>
+                <th scope="col">ASSISTS</th>
+                <th scope="col">SAVES</th>
+                <th scope="col">SHOTS</th>
+                <th scope="col">DURATION</th>
+                <th scope="col">PLAYERS</th>
+                <th scope="col">DATE</th>
+              </tr>
+            </thead>
+            <tbody id="match-list">
+              <tr><td class="empty-history" colspan="9">Waiting for a completed match from Rocket League.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="history-footnote" id="match-history-note">No simulated matches are included in this history.</p>
+      </section>
+
+      <footer class="footer">
+        <span><span class="footer-mark">◆</span> BUILT FOR THE BETWEEN-GAMES MOMENT</span>
+        <span>RL COMPANION <span class="footer-separator">/</span> STAGE 01</span>
+      </footer>
+    </main>
+  </body>
+</html>
